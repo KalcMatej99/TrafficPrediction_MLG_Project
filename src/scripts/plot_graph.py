@@ -101,7 +101,7 @@ def plot_graph(draw: bool):
     fig.update_layout(mapbox_style="streets")
 
     # Save plot to file
-    plot_path = os.path.join("./data/", "map_view.html")
+    plot_path = os.path.join("../data/", "map_view.html")
     html = fig.to_html(full_html=True, include_plotlyjs='cdn')
     file = open(plot_path, "w")
     file.write(html)
