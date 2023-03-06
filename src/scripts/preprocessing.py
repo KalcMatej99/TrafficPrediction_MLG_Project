@@ -1,6 +1,7 @@
 ### IMPORTS ###
 import pandas as pd
 import numpy as np
+import torch
 
 from datetime import timedelta, datetime
 
@@ -8,7 +9,7 @@ from datetime import timedelta, datetime
 
 # earliest and latest dates in our data
 START_DATE = '2016-01-01 00:00:00+00:00'
-END_DATE = '2021-03-02 00:00:00+00:00'
+END_DATE = '2023-03-03 09:00:00+00:00'
 
 # datetime format used in our data
 DATE_FORMAT = '%Y-%m-%d %H:00:00+00:00'
@@ -179,3 +180,44 @@ def mark_holidays(counters, shift = 7, counties_of_interest = ['Slovenia'], holi
     annot_counters = annot_counters.fillna(False)
     
     return annot_counters
+def mark_successors_in_adj_mtx(start_node, successors_string, adj_mtx):
+    successors_list = successors_string.split(',')
+    if len(successors_list)==0 or successors_list[0].lower()=='nan' or successors_list[0]=='':
+        return
+    else:
+        if start_node not in adj_mtx.index:
+            print(f"WARNING: Start node {start_node} not in rows")
+        
+        for successor in successors_list:
+            if successor not in adj_mtx.columns:
+                # Successors not found among the data are some highway exits or entries 
+                # or break-stops which were IGNORED on data collection!
+                #print(f"Successor {successor} not in columns")
+                continue
+            adj_mtx.loc[start_node, successor] = 1
+        return
+        
+def construct_edge_index(counters_aggregated : pd.DataFrame):
+    all_counters = counters_aggregated['id'].unique()
+    adj_mtx = pd.DataFrame(index=all_counters, columns=all_counters)
+    
+    counters_aggregated['successors'] = counters_aggregated['successors'].astype(str)
+    all_counters = counters_aggregated['id'].unique()
+    adj_mtx = pd.DataFrame(index=all_counters, columns=all_counters)
+
+    _ = counters_aggregated[['id', 'successors']].apply(lambda x: mark_successors_in_adj_mtx(x[0], x[1], adj_mtx), axis=1)
+    adj_mtx.fillna(0, inplace=True)
+
+    n_node = len(all_counters)
+    # manipulate nxn matrix into 2xnum_edges
+    edge_index = torch.zeros((2, n_node**2), dtype=torch.long)
+    num_edges = 0
+    for i in range(n_node):
+        for j in range(n_node):
+            if adj_mtx.iloc[i, j] == 1:
+                edge_index[0, num_edges] = i
+                edge_index[1, num_edges] = j
+                num_edges += 1
+    # using resize_ to just keep the first num_edges entries
+    edge_index = edge_index[:,:num_edges]
+    return edge_index, n_node, num_edges
