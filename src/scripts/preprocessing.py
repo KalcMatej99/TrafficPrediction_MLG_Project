@@ -121,16 +121,17 @@ def add_hours_to_holidays(holidays):
         holiday_markers = pd.concat([holiday_markers, holidays])
         
     # specify one datetime format (for combining with other datasets)
-    holiday_markers['Date'] = holiday_markers['Date'].dt.strftime('%Y-%m-%d %H:00:00+00:00')
+    holiday_markers['Date'] = holiday_markers['Date'].dt.strftime(DATE_FORMAT)
         
     return holiday_markers
 
-def mark_holidays(counters, shift = 7, counties_of_interest = ['Slovenia'], holiday_types = [False, True]):
+def mark_holidays(counters, holiday_markers, shift = 7, counties_of_interest = ['Slovenia'], holiday_types = [False, True]):
     """Prepend each counter with info whether there'll be a holiday in the next x days (shift).
     This way when we join we get a feature of 7x1 specifying holidays in next week.
 
     Args:
         counters (pd.DataFrame): without added holiday feature
+        holiday_markers (pd.DataFrame): marked holidays by hours
         shift (int, optional): how many day into the future we want. Defaults to 7.
         counties_of_interest (list, optional): for which countries. Defaults to ['Slovenia'].
         holiday_types (list, optional): unpaid and/or paid. Defaults to [False, True].
@@ -138,9 +139,6 @@ def mark_holidays(counters, shift = 7, counties_of_interest = ['Slovenia'], holi
     Returns:
         annot_counters(pd.DataFrame): with added holiday feature
     """
-
-    # read created holiday markers
-    holiday_markers = pd.read_csv('./data/holiday_markers.csv')
     
     # dataframe counter (with marked holidays)
     annot_counters = counters.copy().drop_duplicates()
@@ -152,7 +150,10 @@ def mark_holidays(counters, shift = 7, counties_of_interest = ['Slovenia'], holi
     # print(list(holiday_markers['Date'].unique()))
     holiday_markers['Date'] = pd.to_datetime(holiday_markers['Date'])
     holiday_markers['Date'] -= shift * day
-    holiday_markers['Date'] = holiday_markers['Date'].dt.strftime('%Y-%m-%d %H:00:00+00:00')
+    holiday_markers['Date'] = holiday_markers['Date'].dt.strftime(DATE_FORMAT)
+
+    # change counter dates to strings
+    annot_counters['Date'] = annot_counters['Date'].dt.strftime(DATE_FORMAT)
 
     for country in counties_of_interest:
         
