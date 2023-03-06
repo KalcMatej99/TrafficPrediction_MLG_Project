@@ -86,6 +86,101 @@ def fill_gaps(counter, start_date=None, end_date=None):
 
     return fixed_counter
 
+
+def add_hours_to_holidays(holidays):
+    """Original holidays specified for days - but our task requires hourly predictions.
+    Create dataframe, in which, each hour is specified as a holiday.
+
+    Args:
+        holidays (pd.DataFrame): holidays for several countries
+
+    Returns:
+        holiday_markers (pd.DataFrame): same as holidays but each hour is annotated
+    """
+    
+    # make copy of holiday dataframe (prevent changes)
+    holidays = holidays.copy()
+    
+    # marking for each holiday (last from 0:0 - 24:00)
+    holiday_markers = pd.DataFrame()
+    
+    holidays['Date'] = pd.to_datetime(holidays['Date'])
+    
+    # unit of measurement
+    hour = timedelta(hours = 1)
+    
+    for i in range(23):
+        
+        # holidays at a specific hour of the day
+        holidays = holidays.copy()
+        
+        # shift holiday from midnight to specific hour
+        holidays['Date'] += hour
+        
+        # add to all holiday markers
+        holiday_markers = pd.concat([holiday_markers, holidays])
+        
+    # specify one datetime format (for combining with other datasets)
+    holiday_markers['Date'] = holiday_markers['Date'].dt.strftime(DATE_FORMAT)
+        
+    return holiday_markers
+
+def mark_holidays(counters, holiday_markers, shift = 7, counties_of_interest = ['Slovenia'], holiday_types = [False, True]):
+    """Prepend each counter with info whether there'll be a holiday in the next x days (shift).
+    This way when we join we get a feature of 7x1 specifying holidays in next week.
+
+    Args:
+        counters (pd.DataFrame): without added holiday feature
+        holiday_markers (pd.DataFrame): marked holidays by hours
+        shift (int, optional): how many day into the future we want. Defaults to 7.
+        counties_of_interest (list, optional): for which countries. Defaults to ['Slovenia'].
+        holiday_types (list, optional): unpaid and/or paid. Defaults to [False, True].
+
+    Returns:
+        annot_counters(pd.DataFrame): with added holiday feature
+    """
+    
+    # dataframe counter (with marked holidays)
+    annot_counters = counters.copy().drop_duplicates()
+    
+    # unit of shift
+    day = timedelta(days = 1)
+    
+    # shift holiday markers into the past (so they reflect future holidays)
+    # print(list(holiday_markers['Date'].unique()))
+    holiday_markers['Date'] = pd.to_datetime(holiday_markers['Date'])
+    holiday_markers['Date'] -= shift * day
+    holiday_markers['Date'] = holiday_markers['Date'].dt.strftime(DATE_FORMAT)
+
+    # change counter dates to strings
+    annot_counters['Date'] = annot_counters['Date'].dt.strftime(DATE_FORMAT)
+
+    for country in counties_of_interest:
+        
+        for is_paid in holiday_types:
+        
+            # get holidays specific to country (ignore name and type - prob. to noisy info)
+            country_holidays = holiday_markers.loc[(holiday_markers['country'] == country) & (holiday_markers['isPaid'] == is_paid)][['Date', 'isPaid']]
+            
+            # drop any possibly duplicated columns
+            country_holidays = country_holidays.drop_duplicates()
+
+            # feature name 
+            feat_name = f'{"Paid" if is_paid else "Unpaid"} Holiday-{country}'
+            
+            # rename is holiday column to distinguish between different countries
+            country_holidays.rename(columns = {'isPaid': feat_name}, inplace = True)
+
+            # set all values to true this will be the feature vector
+            country_holidays[feat_name] = True
+            
+            # append holiday info
+            annot_counters = annot_counters.merge(country_holidays, on = 'Date', how = 'left')
+    
+    # all rows that are not holidays should be marked as false
+    annot_counters = annot_counters.fillna(False)
+    
+    return annot_counters
 def mark_successors_in_adj_mtx(start_node, successors_string, adj_mtx):
     successors_list = successors_string.split(',')
     if len(successors_list)==0 or successors_list[0].lower()=='nan' or successors_list[0]=='':
