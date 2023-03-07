@@ -181,6 +181,8 @@ def mark_holidays(counters, holiday_markers, shift = 7, counties_of_interest = [
     annot_counters = annot_counters.fillna(False)
     
     return annot_counters
+
+
 def mark_successors_in_adj_mtx(start_node, successors_string, adj_mtx):
     successors_list = successors_string.split(',')
     if len(successors_list)==0 or successors_list[0].lower()=='nan' or successors_list[0]=='':
@@ -197,6 +199,7 @@ def mark_successors_in_adj_mtx(start_node, successors_string, adj_mtx):
                 continue
             adj_mtx.loc[start_node, successor] = 1
         return
+        
         
 def construct_edge_index(counters_aggregated : pd.DataFrame):
     all_counters = counters_aggregated['id'].unique()
