@@ -5,7 +5,7 @@ import torch
 import glob
 from torch_geometric.data import Data
 import logging
-
+import datetime
 from datetime import timedelta, datetime
 
 ### CONSTANTS ###
@@ -252,6 +252,9 @@ def construct_edge_index(counters_aggregated : pd.DataFrame):
     edge_index = edge_index[:,:num_edges]
     return edge_index, n_node, num_edges
 
+def number_of_countries_in_holiday_dataset(config):
+    holidays = pd.read_csv(config["holidays_path"])
+    return len(set(holidays["country"]))
 
 def prepare_holidays_dataset(config):
     """TODO
@@ -260,7 +263,7 @@ def prepare_holidays_dataset(config):
         config (json): parameter dictionary
 
     Returns:
-        slovenian_holiday_markers (pd.DataFrame): clean dataframe with holidays
+        holiday_markers (pd.DataFrame): clean dataframe with holidays
     """
     # holidays for each region
     holidays = pd.read_csv(config["holidays_path"])
@@ -275,9 +278,8 @@ def prepare_holidays_dataset(config):
     holidays.rename(columns = {'date': 'Date'}, inplace = True)
 
     holiday_markers = add_hours_to_holidays(holidays)
-    holiday_markers["Date"] = pd.to_datetime(holiday_markers['Date']) 
-    slovenian_holiday_markers = holiday_markers[holiday_markers["country"] == "Slovenia"]
-    return slovenian_holiday_markers
+    holiday_markers["Date"] = pd.to_datetime(holiday_markers['Date'])
+    return holiday_markers
 
 
 def prepare_historical_dataset(config):
@@ -326,7 +328,7 @@ def prepare_pyg_dataset(config):
 
     # Prepare dataset with holiday data
     if config["USE_HOLIDAY_FEATURES"]:
-        slovenian_holiday_markers = prepare_holidays_dataset(config)
+        holiday_markers = prepare_holidays_dataset(config)
         logging.info("Holiday features successfully prepared")
 
     # Prepare dataset with historical counter data
@@ -346,15 +348,18 @@ def prepare_pyg_dataset(config):
         g.edge_index = edge_index
         train_test_chunk = counters_df.iloc[(-i-(config['F_IN']+config['F_OUT'])):(-i),:]
         
-        current_date = np.max(train_test_chunk.iloc[:config['F_IN'],:].index)
-
         X = train_test_chunk.iloc[:config['F_IN'],:].to_numpy().T
         Y = train_test_chunk.iloc[config['F_IN']:,:].to_numpy().T
+
         if config["USE_HOLIDAY_FEATURES"]:
-            if len(slovenian_holiday_markers[slovenian_holiday_markers["Date"] == current_date].index) > 0:
-                X = np.hstack((X, np.ones((len(X), 1))))
-            else:
-                X = np.hstack((X, np.zeros((len(X), 1))))
+            current_date = np.max(train_test_chunk.iloc[:config['F_IN'],:].index)
+            for country in list(set(holiday_markers["country"])):
+                selected_country_holiday_markers = holiday_markers[holiday_markers["country"] == country]
+                for day_index in range(1, 8):
+                    if len(selected_country_holiday_markers[selected_country_holiday_markers["Date"] == current_date + timedelta(days=day_index)].index) > 0:
+                        X = np.hstack((X, np.ones((len(X), 1))))
+                    else:
+                        X = np.hstack((X, np.zeros((len(X), 1))))
 
         g.x = torch.FloatTensor(X)
         g.y = torch.FloatTensor(Y)
