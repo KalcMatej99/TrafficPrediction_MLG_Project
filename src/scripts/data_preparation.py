@@ -2,6 +2,9 @@
 import pandas as pd
 import numpy as np
 import torch
+import glob
+from torch_geometric.data import Data
+import logging
 
 from datetime import timedelta, datetime
 
@@ -125,6 +128,7 @@ def add_hours_to_holidays(holidays):
         
     return holiday_markers
 
+
 def mark_holidays(counters, holiday_markers, shift = 7, counties_of_interest = ['Slovenia'], holiday_types = [False, True]):
     """Prepend each counter with info whether there'll be a holiday in the next x days (shift).
     This way when we join we get a feature of 7x1 specifying holidays in next week.
@@ -184,6 +188,17 @@ def mark_holidays(counters, holiday_markers, shift = 7, counties_of_interest = [
 
 
 def mark_successors_in_adj_mtx(start_node, successors_string, adj_mtx):
+    """In the adj_mtx DataFrame, mark all the successor nodes
+    of start_node which are stored in successors_string 
+
+    Args:
+        start_node (str): the counter for which we want to mark his successors (ex: 0111-1)
+        successors_string (str): the successor nodes for start_node (ex: '0112-2,0231-1')
+        adj_mtx (pd.datetime): adjacency matrix of size [n,n]
+
+    Returns:
+        void : nothing is returned, only adj_mtx is changed
+    """
     successors_list = successors_string.split(',')
     if len(successors_list)==0 or successors_list[0].lower()=='nan' or successors_list[0]=='':
         return
@@ -202,6 +217,17 @@ def mark_successors_in_adj_mtx(start_node, successors_string, adj_mtx):
         
         
 def construct_edge_index(counters_aggregated : pd.DataFrame):
+    """Given non-temporal data about all counters, construct the edge_index 
+    array needed for PyG training
+
+    Args:
+        counters_aggregated (pd.DataFrame): data-frame containing counters data in each row
+
+    Returns:
+        edge_index (np.array): nothing is returned, only adj_mtx is changed
+        n_node (int): number of nodes
+        num_edges (int): number of edges
+    """
     all_counters = counters_aggregated['id'].unique()
     adj_mtx = pd.DataFrame(index=all_counters, columns=all_counters)
     
@@ -225,3 +251,142 @@ def construct_edge_index(counters_aggregated : pd.DataFrame):
     # using resize_ to just keep the first num_edges entries
     edge_index = edge_index[:,:num_edges]
     return edge_index, n_node, num_edges
+
+
+def prepare_holidays_dataset(config):
+    """TODO
+
+    Args:
+        config (json): parameter dictionary
+
+    Returns:
+        slovenian_holiday_markers (pd.DataFrame): clean dataframe with holidays
+    """
+    # holidays for each region
+    holidays = pd.read_csv(config["holidays_path"])
+
+    # drop holiday region (all values look like NaN - all we have is Austrian regions or very german sounding Slovenian regions)
+    holidays = holidays.drop(['region'], axis = 1)
+
+    # remove NaNs
+    holidays = holidays.drop_duplicates()
+
+    # name holidays properly
+    holidays.rename(columns = {'date': 'Date'}, inplace = True)
+
+    holiday_markers = add_hours_to_holidays(holidays)
+    holiday_markers["Date"] = pd.to_datetime(holiday_markers['Date']) 
+    slovenian_holiday_markers = holiday_markers[holiday_markers["country"] == "Slovenia"]
+    return slovenian_holiday_markers
+
+
+def prepare_historical_dataset(config):
+    """TODO
+
+    Args:
+        config (json): parameter dictionary
+
+    Returns:
+        slovenian_holiday_markers (pd.DataFrame): clean dataframe with holidays
+    """
+    counters_df = pd.DataFrame()
+    for fname in glob.glob(config["counter_files_path"] + "*.csv"):
+        counter_data = pd.read_csv(fname)
+        counter_data = fill_gaps(counter_data)
+        #counter_data = mark_holidays(counter_data, holiday_markers)
+        counter_data['Date'] = pd.to_datetime(counter_data['Date']) 
+        counter_data.index = counter_data['Date']
+        counter_data = counter_data.sort_index(ascending=False)
+        # We don't need to work with all past data.
+        # Select enough data points to extract N_GRAPHS with F_IN and F_OUT timepoints
+        
+        counter_data = counter_data.iloc[0:(config["F_IN"]+config["F_OUT"]+config["N_GRAPHS"]), :]
+        counter_id = fname.split('/')[-1].split('.csv')[0]
+
+        if counters_df.empty:
+            counters_df = pd.DataFrame(counter_data[config['target_col']])
+            counters_df.columns = [counter_id]
+        else:
+            columns = list(counters_df.columns) + [counter_id]
+            counters_df = pd.concat([counters_df, counter_data[config['target_col']]], axis=1)
+            counters_df.columns = columns 
+
+    return counters_df
+
+def prepare_pyg_dataset(config):
+    """Construct a list which contains a Data instance in every element
+
+    Args:
+        config (json): parameter dictionary
+
+    Returns:
+        dataset (list): dataset containing Data instances
+    """
+    logging.info("Preparing data...")
+
+    # Prepare dataset with holiday data
+    if config["USE_HOLIDAY_FEATURES"]:
+        slovenian_holiday_markers = prepare_holidays_dataset(config)
+        logging.info("Holiday features successfully prepared")
+
+    # Prepare dataset with historical counter data
+    counters_df = prepare_historical_dataset(config)
+    logging.info("Historical counter data successfully read")
+
+    #Prepare edge_index matrix
+    counters_aggregated = pd.read_csv(config['counters_nontemporal_aggregated'])
+    edge_index, n_node, _ = construct_edge_index(counters_aggregated)
+    logging.info("Edge index constructed")
+
+    #Prepare matrices X shaped:[N_GRAPHS, N_NODES, F_IN] and Y shaped:[N_GRAPHS, N_NODES, F_OUT] 
+    final_dataset = []
+    for i in range(1, config["N_GRAPHS"]+1):
+        g = Data()
+        g.__num_nodes__ = n_node
+        g.edge_index = edge_index
+        train_test_chunk = counters_df.iloc[(-i-(config['F_IN']+config['F_OUT'])):(-i),:]
+        
+        current_date = np.max(train_test_chunk.iloc[:config['F_IN'],:].index)
+
+        X = train_test_chunk.iloc[:config['F_IN'],:].to_numpy().T
+        Y = train_test_chunk.iloc[config['F_IN']:,:].to_numpy().T
+        if config["USE_HOLIDAY_FEATURES"]:
+            if len(slovenian_holiday_markers[slovenian_holiday_markers["Date"] == current_date].index) > 0:
+                X = np.hstack((X, np.ones((len(X), 1))))
+            else:
+                X = np.hstack((X, np.zeros((len(X), 1))))
+
+        g.x = torch.FloatTensor(X)
+        g.y = torch.FloatTensor(Y)
+        final_dataset += [g]
+
+    logging.info("Final dataset constructed")
+    return final_dataset    
+
+    
+
+def split_dataset(dataset, config):
+    """Split the given dataset into train, validation and test
+
+    Args:
+        dataset (list): the dataset we wish to split
+
+    Returns:
+        train_g (list): train dataset,
+        val_g (list): validation dataset,
+        test_g (list): test dataset,
+    """
+    split_train, split_val, _ = config['TRAIN_TEST_PROPORTION' ]
+    index_train = int(np.floor(config["N_GRAPHS"]*split_train))
+    index_val = int(index_train + np.floor(config["N_GRAPHS"]*split_val))
+    train_g = dataset[:index_train]
+    val_g = dataset[index_train:index_val]
+    test_g = dataset[index_val:]
+
+    print("Size of train data:", len(train_g))
+    print("Size of validation data:", len(val_g))
+    print("Size of test data:", len(test_g))
+
+    logging.info("Dataset splitted to train,val,test")
+    return train_g, val_g, test_g
+
