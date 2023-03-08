@@ -1,4 +1,22 @@
+#################################
+############ IMPORTS ############
+#################################
+
+# for scoring function calculation
 import torch
+
+# reading tensorboard logs
+from tensorboard.backend.event_processing import event_accumulator
+
+# save log info
+import pandas as pd
+
+# plot logs
+import matplotlib.pyplot as plt
+
+#################################
+####### SCORING FUNCTIONS #######
+#################################
 
 def z_score(x, mean, std):
     return (x - mean) / std
@@ -10,3 +28,151 @@ def RMSE(v, v_):
     return torch.sqrt(torch.mean((v_ - v) ** 2))
 def MAE(v, v_):
     return torch.mean(torch.abs(v_ - v))
+
+
+#################################
+####### LOGGING FUNCTIONS #######
+#################################
+
+def read_logs(path, scalars, save_dir, rounding = 0, aggregate = True):
+    """Read tensorboard log file and plot graphs for specified 
+    variables (scalars) then save the graphs to save dir. 
+
+    Args:
+        path (str): path to log files from model
+        scalars (list[str]): list of variables of interest
+        save_dir (str): directory where to save graphs (.png format)
+        rounding (int, optional): how much difference actually matters. Defaults to 0.
+        aggregate (bool, optional): calc the means for each step (logging seems to be on a batch basis). Defaults to True.
+    Returns:
+        all_data(pd.DataFrame): logs in df format
+    """
+
+    ## create save paths
+    df_save_path = f'{save_dir}/logs.csv'
+
+    # instantiate reader object
+    ea = ea = event_accumulator.EventAccumulator(path)
+
+    # read tensorboard logs
+    ea.Reload()
+
+    # list of (saved) directory keys 
+    tags = ea.Tags()
+
+    # get available variables
+    available_vars = tags['scalars']
+
+    # initialize dataframe
+    all_data = pd.DataFrame()
+
+    # read info for each measured variable
+    for scalar in scalars:
+
+        if scalar in available_vars:
+            
+            info = ea.Scalars(scalar)
+            
+            # convert to dataframe
+            data = pd.DataFrame(info)
+
+            # set name to log name
+            data = data.rename(columns = {'value': scalar})
+
+            ## join all data into same dataframe
+            if all_data.empty:
+
+                all_data = data
+
+            else:
+
+                # keep only the logs column
+                data.drop(['wall_time'], axis = 1, inplace = True)
+
+                # add only one column of interest (use merge in case logging happens at different timesteps)
+                all_data = all_data.merge(data, on = 'step', how = 'outer')
+
+                # round results
+                all_data = all_data.round(rounding)
+
+            # drop duplicates (seem to be generated somehow - double logging not really that big a deal)
+            all_data.drop_duplicates(inplace = True)
+
+            if aggregate:
+                all_data = all_data.groupby(['step'], as_index = False).mean()
+
+            # save dataframe
+            all_data.to_csv(df_save_path, index = False)
+
+        else:
+            
+            print(f'{scalar} variable was not logged.')
+
+    return all_data
+
+
+def plot_logs(data, graph_list, save_paths, aggregate = True):
+    """Plot and save relevant graphs from data (logs).
+
+    Args:
+        data (pd.DataFrame): dataframe of logs
+        graph_list (list[list[str]]): list of graph (variables) to plot/save
+        save_paths (str): paths where to save graphs (.png format)
+        aggregate (bool, optional): calc the means for each step (logging seems to be on a batch basis). Defaults to True.
+    """
+
+    for scalars, save_path in zip(graph_list, save_paths):
+
+        ## select displayed variables
+        selection = ['step'] + scalars
+        graph_data = data[selection]
+
+        # don't display missing rows
+        graph_data = graph_data.dropna()
+
+        if aggregate:
+            graph_data = graph_data.groupby(['step'], as_index = False).mean()
+
+        ## create plot
+        ax = plt.gca()
+
+        for scalar in scalars:
+
+            # lineplot for each variable
+            graph_data.plot(kind = 'line', x = 'step', y = scalar, ax = ax)
+
+            print(graph_data[scalar])
+
+        plt.savefig(save_path, dpi = 100)
+
+        ## destroy plot
+        plt.cla()
+
+
+
+if __name__ == '__main__':
+
+    # which logs you want to read
+    tb_path = '/home/bro/Documents/FRI/MLG/project/TrafficPrediction_MLG_Project/src/runs/Mar06_21-28-48_bro-MS-7C91/events.out.tfevents.1678134528.bro-MS-7C91.24502.5'
+    
+    # where to save df
+    save_path = '/home/bro/Documents/FRI/MLG/project/TrafficPrediction_MLG_Project/src/runs/Mar06_21-28-48_bro-MS-7C91'
+
+    # what you want to read from logs
+    logs = read_logs(tb_path, ['Loss/train', 'MAE/train', 'RMSE/train',
+                            'MAE/val', 'RMSE/val'], save_path)
+    
+
+    # put where you want to save graphs
+    graph_paths = [
+        '/home/bro/Documents/FRI/MLG/project/TrafficPrediction_MLG_Project/src/runs/Mar06_21-28-48_bro-MS-7C91/loss.png',
+        '/home/bro/Documents/FRI/MLG/project/TrafficPrediction_MLG_Project/src/runs/Mar06_21-28-48_bro-MS-7C91/rmse.png',
+        '/home/bro/Documents/FRI/MLG/project/TrafficPrediction_MLG_Project/src/runs/Mar06_21-28-48_bro-MS-7C91/mape.png',
+        '/home/bro/Documents/FRI/MLG/project/TrafficPrediction_MLG_Project/src/runs/Mar06_21-28-48_bro-MS-7C91/mae.png'
+    ]
+    
+    # which graphs to plot
+    plot_logs(logs, [['Loss/train'],
+                    ['RMSE/train', 'RMSE/val'],
+                    ['MAE/val', 'MAE/train'] 
+                    ], graph_paths)
