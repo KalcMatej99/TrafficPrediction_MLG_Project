@@ -256,11 +256,12 @@ def number_of_countries_in_holiday_dataset(config):
     holidays = pd.read_csv(config["holidays_path"])
     return len(set(holidays["country"]))
 
-def prepare_holidays_dataset(config):
+def prepare_holidays_dataset(config, day = None):
     """TODO
 
     Args:
         config (json): parameter dictionary
+        day (datetime): parameter day of interest
 
     Returns:
         holiday_markers (pd.DataFrame): clean dataframe with holidays
@@ -279,7 +280,53 @@ def prepare_holidays_dataset(config):
 
     holiday_markers = add_hours_to_holidays(holidays)
     holiday_markers["Date"] = pd.to_datetime(holiday_markers['Date'])
+
     return holiday_markers
+
+def prepare_holidays_dataset_for_date(holiday_markers, date, config):
+    """TODO
+
+    Args:
+        holiday_markers: dataset that contains the holiday information
+        date (datetime): day of interest
+        config (json): parameter dictionary
+
+    Returns:
+        holiday_mtx (np.array): 2D array, where rows are nodes and columns contain information if on 
+                                a specific day and in a specific country there is a holiday
+    """
+
+    # Retrieve the countries of interest (countries that are on the boarder)
+    unique_countries = list(set(holiday_markers["country"]))
+
+    # Since we predict for the next 7 days we are interested if there are any holidays in the next 7 days
+    number_of_unique_contries = len(unique_countries)
+    number_of_days_of_interest = 7
+
+    # Create mtx of zeros, where each column represensts if there is a holiday on a specific date in a specific country
+    holiday_mtx = np.zeros((config["N_NODE"], number_of_unique_contries * number_of_days_of_interest))
+
+    for index_country, country in enumerate(unique_countries):
+
+        #Select from the data frame only the country of interest
+        selected_country_holiday_markers = holiday_markers[holiday_markers["country"] == country]
+        holiday_dates_in_select_country = selected_country_holiday_markers["Date"].to_numpy()
+
+        # Check for the next 7 days if there is a holiday
+        for day_index in range(1, number_of_days_of_interest + 1):
+            day_of_interest = date + timedelta(days=day_index)
+            if day_of_interest in holiday_dates_in_select_country:
+                # This block occurs iff there is a holiday on the specific date
+                # We set the column to ones instead of zeros
+                current_column = index_country * number_of_days_of_interest + (day_index - 1)
+                holiday_mtx[:, current_column] = 1
+
+    return holiday_mtx
+
+def prepare_weekday_dataset_for_date(date, config):
+    weekday_mtx = np.zeros((config["N_NODE"], 1))
+    weekday_mtx[:,:] = date.weekday()
+    return weekday_mtx
 
 
 def prepare_historical_dataset(config):
@@ -352,14 +399,16 @@ def prepare_pyg_dataset(config):
         Y = train_test_chunk.iloc[config['F_IN']:,:].to_numpy().T
 
         if config["USE_HOLIDAY_FEATURES"]:
+            # Adding holiday features
             current_date = np.max(train_test_chunk.iloc[:config['F_IN'],:].index)
-            for country in list(set(holiday_markers["country"])):
-                selected_country_holiday_markers = holiday_markers[holiday_markers["country"] == country]
-                for day_index in range(1, 8):
-                    if len(selected_country_holiday_markers[selected_country_holiday_markers["Date"] == current_date + timedelta(days=day_index)].index) > 0:
-                        X = np.hstack((X, np.ones((len(X), 1))))
-                    else:
-                        X = np.hstack((X, np.zeros((len(X), 1))))
+            future_holidays = prepare_holidays_dataset_for_date(holiday_markers, current_date, config)
+            X = np.hstack((X, future_holidays))
+
+        if config["USE_WEEKDAY_FEATURES"]:
+            # Adding day of the week features
+            current_date = np.max(train_test_chunk.iloc[:config['F_IN'],:].index)
+            weekday_features = prepare_weekday_dataset_for_date(current_date, config)
+            X = np.hstack((X, weekday_features))
 
         g.x = torch.FloatTensor(X)
         g.y = torch.FloatTensor(Y)
