@@ -14,6 +14,11 @@ import pandas as pd
 # plot logs
 import matplotlib.pyplot as plt
 
+# save all prediction as list of 3D matrices (nodes x car types x timesteps)
+import pickle as pkl
+from os.path import exists
+from datetime import datetime
+
 #################################
 ####### SCORING FUNCTIONS #######
 #################################
@@ -59,6 +64,8 @@ def read_logs(path, scalars, save_dir, rounding = 0, aggregate = True):
 
     # list of (saved) directory keys 
     tags = ea.Tags()
+
+    print(tags)
 
     # get available variables
     available_vars = tags['scalars']
@@ -141,22 +148,67 @@ def plot_logs(data, graph_list, save_paths, aggregate = True):
             # lineplot for each variable
             graph_data.plot(kind = 'line', x = 'step', y = scalar, ax = ax)
 
-            print(graph_data[scalar])
-
         plt.savefig(save_path, dpi = 100)
 
         ## destroy plot
         plt.cla()
 
+####################################################
+####### VISUALIZE EACH INDIVIDUAL PREDICTION #######
+####################################################
+
+def generate_savefile(name):
+    """Generate names for save files (TODO)
+
+    Args:
+        name (str): some distinguishing savefile info
+
+    Returns:
+        unique_name (str): added time date
+    """
+
+    current_datetime = datetime.today().strftime('%Y-%m-%d %H:%M:%S')
+
+    unique_name = f'{name}-{current_datetime}'
+
+    return unique_name
+
+
+def save_all_predictions(y_pred, y_true, dim_vals, save_file):
+    """Save all prediction as list tuples (y_pred, y_true) where both are 3D matrices (n_graphs x nodes x timesteps).
+
+    Args:
+        y_pred (torch.Tensor): model predictions
+        y_true (torch.Tensor): actual values
+        dim_vals (list[list[str]]): 2x List of counters and timesteps
+        save_file (str): location where to save at or if exists list of results
+    """
+
+    # create new list
+    res = []
+
+    # not the first batch
+    if exists(save_file):
+
+        # load the previously saved list (simply append current predictions)
+        with open(save_file, 'rb') as handle:
+            err = pkl.load(handle)
+
+    # append current predictions
+    res.append((y_pred, y_true, dim_vals))
+
+    # store results
+    with open(save_file, 'wb') as handle:
+        pkl.dump(res, handle, protocol=pkl.HIGHEST_PROTOCOL)
 
 
 if __name__ == '__main__':
 
     # which logs you want to read
-    tb_path = '/home/bro/Documents/FRI/MLG/project/TrafficPrediction_MLG_Project/src/runs/Mar06_21-28-48_bro-MS-7C91/events.out.tfevents.1678134528.bro-MS-7C91.24502.5'
+    tb_path = '/home/bro/Documents/FRI/MLG/project/TrafficPrediction_MLG_Project/src/runs/Mar06_21-26-12_bro-MS-7C91/events.out.tfevents.1678134372.bro-MS-7C91.24502.4'
     
     # where to save df
-    save_path = '/home/bro/Documents/FRI/MLG/project/TrafficPrediction_MLG_Project/src/runs/Mar06_21-28-48_bro-MS-7C91'
+    save_path = '/home/bro/Documents/FRI/MLG/project/TrafficPrediction_MLG_Project/src/runs/Mar06_21-26-12_bro-MS-7C91'
 
     # what you want to read from logs
     logs = read_logs(tb_path, ['Loss/train', 'MAE/train', 'RMSE/train',
@@ -165,10 +217,10 @@ if __name__ == '__main__':
 
     # put where you want to save graphs
     graph_paths = [
-        '/home/bro/Documents/FRI/MLG/project/TrafficPrediction_MLG_Project/src/runs/Mar06_21-28-48_bro-MS-7C91/loss.png',
-        '/home/bro/Documents/FRI/MLG/project/TrafficPrediction_MLG_Project/src/runs/Mar06_21-28-48_bro-MS-7C91/rmse.png',
-        '/home/bro/Documents/FRI/MLG/project/TrafficPrediction_MLG_Project/src/runs/Mar06_21-28-48_bro-MS-7C91/mape.png',
-        '/home/bro/Documents/FRI/MLG/project/TrafficPrediction_MLG_Project/src/runs/Mar06_21-28-48_bro-MS-7C91/mae.png'
+        '/home/bro/Documents/FRI/MLG/project/TrafficPrediction_MLG_Project/src/runs/Mar06_21-26-12_bro-MS-7C91/loss.png',
+        '/home/bro/Documents/FRI/MLG/project/TrafficPrediction_MLG_Project/src/runs/Mar06_21-26-12_bro-MS-7C91/rmse.png',
+        '/home/bro/Documents/FRI/MLG/project/TrafficPrediction_MLG_Project/src/runs/Mar06_21-26-12_bro-MS-7C91/mape.png',
+        '/home/bro/Documents/FRI/MLG/project/TrafficPrediction_MLG_Project/src/runs/Mar06_21-26-12_bro-MS-7C91/mae.png'
     ]
     
     # which graphs to plot

@@ -369,7 +369,7 @@ def prepare_pyg_dataset(config):
         config (json): parameter dictionary
 
     Returns:
-        dataset (list): dataset containing Data instances
+        dataset (list), dim_vals (list): dataset containing Data instances, 2 x list of feature names for each dim of Y
     """
     logging.info("Preparing data...")
 
@@ -387,6 +387,9 @@ def prepare_pyg_dataset(config):
     edge_index, n_node, _ = construct_edge_index(counters_aggregated)
     logging.info("Edge index constructed")
 
+    #get dimension values 
+    dim_vals = []
+
     #Prepare matrices X shaped:[N_GRAPHS, N_NODES, F_IN] and Y shaped:[N_GRAPHS, N_NODES, F_OUT] 
     final_dataset = []
     for i in range(1, config["N_GRAPHS"]+1):
@@ -395,8 +398,14 @@ def prepare_pyg_dataset(config):
         g.edge_index = edge_index
         train_test_chunk = counters_df.iloc[(-i-(config['F_IN']+config['F_OUT'])):(-i),:]
         
-        X = train_test_chunk.iloc[:config['F_IN'],:].to_numpy().T
-        Y = train_test_chunk.iloc[config['F_IN']:,:].to_numpy().T
+        # select current train/test chunk
+        df_train = train_test_chunk.iloc[:config['F_IN'],:]
+
+        # initialize dimension info (counters, datetimes)
+        dim_val = (df_train.T.columns, df_train.columns)
+
+        X = df_train.to_numpy().T
+        Y = df_train.to_numpy().T
 
         if config["USE_HOLIDAY_FEATURES"]:
             # Adding holiday features
@@ -414,12 +423,14 @@ def prepare_pyg_dataset(config):
         g.y = torch.FloatTensor(Y)
         final_dataset += [g]
 
+        dim_vals.append(dim_val)
+
     logging.info("Final dataset constructed")
-    return final_dataset    
+    return final_dataset, dim_vals
 
     
 
-def split_dataset(dataset, config):
+def split_dataset(dataset, config, dim_vars = None):
     """Split the given dataset into train, validation and test
 
     Args:
@@ -433,14 +444,19 @@ def split_dataset(dataset, config):
     split_train, split_val, _ = config['TRAIN_TEST_PROPORTION' ]
     index_train = int(np.floor(config["N_GRAPHS"]*split_train))
     index_val = int(index_train + np.floor(config["N_GRAPHS"]*split_val))
-    train_g = dataset[:index_train]
+    train_g = dataset
     val_g = dataset[index_train:index_val]
     test_g = dataset[index_val:]
+
+    if not dim_vars is None:
+        train_vars = dim_vars[:index_train]
+        val_vars =  dim_vars[index_train:index_val]
+        test_vars = dim_vars[index_val:]
 
     print("Size of train data:", len(train_g))
     print("Size of validation data:", len(val_g))
     print("Size of test data:", len(test_g))
 
     logging.info("Dataset splitted to train,val,test")
-    return train_g, val_g, test_g
+    return train_g, val_g, test_g, train_vars, val_vars, test_vars
 
