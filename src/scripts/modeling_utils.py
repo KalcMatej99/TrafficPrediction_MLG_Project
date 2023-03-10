@@ -167,23 +167,23 @@ def generate_savefile(name):
         unique_name (str): added time date
     """
 
-    current_datetime = datetime.today().strftime('%Y-%m-%d %H:%M:%S')
+    current_datetime = datetime.today().strftime('%Y-%m-%dT%H-%M-%S')
 
     unique_name = f'{name}-{current_datetime}'
 
     return unique_name
 
 
-def save_all_predictions(y_pred, y_true, dim_vals, save_file):
+def save_all_predictions(y_pred, y_true, dim_vals, save_directory):
     """Save all prediction as list tuples (y_pred, y_true) where both are 3D matrices (n_graphs x nodes x timesteps).
 
     Args:
         y_pred (torch.Tensor): model predictions
         y_true (torch.Tensor): actual values
         dim_vals (list[list[str]]): 2x List of counters and timesteps
-        save_file (str): location where to save at or if exists list of results
+        save_directory (str): location where to save at or if exists list of results
     """
-
+    save_file = save_directory + '/ygt_ypred.pkl' 
     # create new list
     res = []
 
