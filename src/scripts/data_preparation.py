@@ -400,12 +400,13 @@ def prepare_pyg_dataset(config):
         
         # select current train/test chunk
         df_train = train_test_chunk.iloc[:config['F_IN'],:]
+        df_test = train_test_chunk.iloc[config['F_IN']:,:]
 
         # initialize dimension info (counters, datetimes)
         dim_val = (df_train.T.columns, df_train.columns)
 
         X = df_train.to_numpy().T
-        Y = df_train.to_numpy().T
+        Y = df_test.to_numpy().T
 
         if config["USE_HOLIDAY_FEATURES"]:
             # Adding holiday features
@@ -444,7 +445,7 @@ def split_dataset(dataset, config, dim_vars = None):
     split_train, split_val, _ = config['TRAIN_TEST_PROPORTION' ]
     index_train = int(np.floor(config["N_GRAPHS"]*split_train))
     index_val = int(index_train + np.floor(config["N_GRAPHS"]*split_val))
-    train_g = dataset
+    train_g = dataset[index_train:]
     val_g = dataset[index_train:index_val]
     test_g = dataset[index_val:]
 
