@@ -341,7 +341,8 @@ def prepare_historical_dataset(config):
     counters_df = pd.DataFrame()
     for fname in glob.glob(config["counter_files_path"] + "*.csv"):
         counter_data = pd.read_csv(fname)
-        counter_data = fill_gaps(counter_data)
+        if not config['data_with_already_filled_gaps']:
+          counter_data = fill_gaps(counter_data)
         #counter_data = mark_holidays(counter_data, holiday_markers)
         counter_data['Date'] = pd.to_datetime(counter_data['Date']) 
         counter_data.index = counter_data['Date']
