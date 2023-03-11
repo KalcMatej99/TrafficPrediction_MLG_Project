@@ -400,8 +400,8 @@ def prepare_pyg_dataset(config):
         train_test_chunk = counters_df.iloc[(-i-(config['F_IN']+config['F_OUT'])):(-i),:]
         
         # select current train/test chunk
-        df_train = train_test_chunk.iloc[:config['F_IN'],:]
-        df_test = train_test_chunk.iloc[config['F_IN']:,:]
+        df_train = train_test_chunk.iloc[config['F_IN']:,:]
+        df_test = train_test_chunk.iloc[:config['F_IN'],:]
 
         # initialize dimension info (counters, datetimes)
         dim_val = (df_train.T.columns, df_train.columns)
