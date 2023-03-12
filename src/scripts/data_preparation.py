@@ -411,13 +411,13 @@ def prepare_pyg_dataset(config):
 
         if config["USE_HOLIDAY_FEATURES"]:
             # Adding holiday features
-            current_date = np.max(train_test_chunk.iloc[:config['F_IN'],:].index)
+            current_date = np.max(df_train.index)
             future_holidays = prepare_holidays_dataset_for_date(holiday_markers, current_date, config)
             X = np.hstack((X, future_holidays))
 
         if config["USE_WEEKDAY_FEATURES"]:
             # Adding day of the week features
-            current_date = np.max(train_test_chunk.iloc[:config['F_IN'],:].index)
+            current_date = np.max(df_train.index)
             weekday_features = prepare_weekday_dataset_for_date(current_date, config)
             X = np.hstack((X, weekday_features))
 
