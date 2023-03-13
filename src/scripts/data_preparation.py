@@ -347,6 +347,7 @@ def prepare_historical_dataset(config):
         counter_data['Date'] = pd.to_datetime(counter_data['Date']) 
         counter_data.index = counter_data['Date']
         counter_data = counter_data.sort_index(ascending=False)
+        counter_data = counter_data.loc[config['DATA_DATE_SPLIT']:,] 
         # We don't need to work with all past data.
         # Select enough data points to extract N_GRAPHS with F_IN and F_OUT timepoints
         
