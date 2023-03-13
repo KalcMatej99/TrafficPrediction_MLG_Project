@@ -7,6 +7,8 @@ from torch_geometric.data import Data
 import logging
 import datetime
 from datetime import timedelta, datetime
+import joblib
+from sklearn.preprocessing import MinMaxScaler
 
 ### CONSTANTS ###
 
@@ -199,6 +201,7 @@ def mark_successors_in_adj_mtx(start_node, successors_string, adj_mtx):
     Returns:
         void : nothing is returned, only adj_mtx is changed
     """
+    adj_mtx.loc[start_node, start_node] = 1
     successors_list = successors_string.split(',')
     if len(successors_list)==0 or successors_list[0].lower()=='nan' or successors_list[0]=='':
         return
@@ -364,6 +367,19 @@ def prepare_historical_dataset(config):
 
     return counters_df
 
+def scale_counters_data(counters_df):
+    """Scale the columns of the input parameter with MinMaxScaler
+
+    Args:
+        counters_df (pd.DataFrame): data frame containing counters as columns and timeseries-signals as rows
+
+    Returns:
+        dataset (pd.DataFrame): DataFrame with scaled columns
+    """
+    scaler = MinMaxScaler()
+    return pd.DataFrame(scaler.fit_transform(counters_df), columns=counters_df.columns)
+
+
 def prepare_pyg_dataset(config):
     """Construct a list which contains a Data instance in every element
 
@@ -383,6 +399,8 @@ def prepare_pyg_dataset(config):
     # Prepare dataset with historical counter data
     counters_df = prepare_historical_dataset(config)
     logging.info("Historical counter data successfully read")
+    # Scale data (each column should be between 0 and 1)
+    counters_df = scale_counters_data(counters_df)
 
     #Prepare edge_index matrix
     counters_aggregated = pd.read_csv(config['counters_nontemporal_aggregated'])
@@ -401,9 +419,9 @@ def prepare_pyg_dataset(config):
         train_test_chunk = counters_df.iloc[(-i-(config['F_IN']+config['F_OUT'])):(-i),:]
         train_test_chunk = train_test_chunk.sort_index(ascending=True)
         
-        # train_test_chunk has rows as decreasing dates
-        # first portion of f_out is test
-        # the rest of the dataset (down) is train
+        # train_test_chunk has rows as increasing dates
+        # first portion of f_in is train
+        # the rest of the dataset (down) is test
         # select current train/test chunk
         df_train = train_test_chunk.iloc[:config['F_IN'],:]
         df_test = train_test_chunk.iloc[config['F_IN']:,:]
