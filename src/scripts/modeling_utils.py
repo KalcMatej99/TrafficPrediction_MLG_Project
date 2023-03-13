@@ -201,22 +201,22 @@ def save_all_predictions(y_pred, y_true, dim_vals, save_directory):
     with open(save_file, 'wb') as handle:
         pkl.dump(res, handle, protocol=pkl.HIGHEST_PROTOCOL)
 
-def plot_predictions_vs_gt(y_pred, y_true, start=0, stop=1000, pickle_path=None):
-    if pickle_path:
-        with open('../mine/ygt_ypred4.pkl', 'rb') as f:
-            data = pkl.load(f)
-            y_pred = data[0][0].reshape(-1)[start:stop]
-            y_true = data[0][1].reshape(-1)[start:stop]
-    else:
-        y_pred = y_pred[0][0].reshape(-1)[start:stop]
-        y_true = y_true[0][1].reshape(-1)[start:stop]
+def plot_predictions_vs_gt(y_pred=None, y_true=None, start=0, stop=1000, pickle_path=None):
+  if pickle_path is not None:
+      with open(pickle_path, 'rb') as f:
+          data = pkl.load(f)
+          y_pred = data[0][0].reshape(-1)[start:stop]
+          y_true = data[0][1].reshape(-1)[start:stop]
+  else:
+      y_pred = y_pred[0][0].reshape(-1)[start:stop]
+      y_true = y_true[0][1].reshape(-1)[start:stop]
 
-    rng = stop-start
-    plt.style.use('seaborn-darkgrid')
-    plt.plot(range(rng), y_pred, label="pred")
-    plt.plot(range(rng), y_true, label="gt")
-    plt.vlines([i*168 for i in range(rng//168)], ymin=0, ymax=3000, linestyles='dashed', colors="black")
-    plt.legend()
+  rng = stop-start
+  plt.style.use('seaborn-darkgrid')
+  plt.plot(range(rng), y_pred, label="pred")
+  plt.plot(range(rng), y_true, label="gt")
+  plt.vlines([i*168 for i in range(rng//168+1)], ymin=0, ymax=3000, linestyles='dashed', colors="black")
+  plt.legend()
 
 
 if __name__ == '__main__':
