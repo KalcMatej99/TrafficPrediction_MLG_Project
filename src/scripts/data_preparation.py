@@ -398,10 +398,14 @@ def prepare_pyg_dataset(config):
         g.__num_nodes__ = n_node
         g.edge_index = edge_index
         train_test_chunk = counters_df.iloc[(-i-(config['F_IN']+config['F_OUT'])):(-i),:]
+        train_test_chunk = train_test_chunk.sort_index(ascending=True)
         
+        # train_test_chunk has rows as decreasing dates
+        # first portion of f_out is test
+        # the rest of the dataset (down) is train
         # select current train/test chunk
-        df_train = train_test_chunk.iloc[config['F_IN']:,:]
-        df_test = train_test_chunk.iloc[:config['F_IN'],:]
+        df_train = train_test_chunk.iloc[:config['F_IN'],:]
+        df_test = train_test_chunk.iloc[config['F_IN']:,:]
 
         # initialize dimension info (counters, datetimes)
         dim_val = (df_train.T.columns, df_train.columns)
@@ -446,7 +450,7 @@ def split_dataset(dataset, config, dim_vars = None):
     split_train, split_val, _ = config['TRAIN_TEST_PROPORTION' ]
     index_train = int(np.floor(config["N_GRAPHS"]*split_train))
     index_val = int(index_train + np.floor(config["N_GRAPHS"]*split_val))
-    train_g = dataset[index_train:]
+    train_g = dataset[:index_train]
     val_g = dataset[index_train:index_val]
     test_g = dataset[index_val:]
 
@@ -461,4 +465,3 @@ def split_dataset(dataset, config, dim_vars = None):
 
     logging.info("Dataset splitted to train,val,test")
     return train_g, val_g, test_g, train_vars, val_vars, test_vars
-
