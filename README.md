@@ -1,6 +1,6 @@
-# TrafficPrediction_MLG_Project
+# Traffic Prediction with ST-GNN
 
-Traffic prediction with ST-GNN project for course Machine Learning with Graphs (2023).
+Traffic prediction with ST-GNN project for course Machine Learning with Graphs - CS224W (2023).
 
 ## Authors
 - Marko Ivanovski
