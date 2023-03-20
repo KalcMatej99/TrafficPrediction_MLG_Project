@@ -5,10 +5,12 @@ import torch
 import glob
 from torch_geometric.data import Data
 import logging
-import datetime
+#import datetime
 from datetime import timedelta, datetime
+from pandas.tseries.offsets import DateOffset
 import joblib
 from sklearn.preprocessing import MinMaxScaler
+from sklearn.preprocessing import OneHotEncoder
 
 ### CONSTANTS ###
 
@@ -217,7 +219,19 @@ def mark_successors_in_adj_mtx(start_node, successors_string, adj_mtx):
                 continue
             adj_mtx.loc[start_node, successor] = 1
         return
-        
+
+def construct_adj_matrix(config):
+    counters_aggregated = pd.read_csv(config['counters_nontemporal_aggregated'])
+    all_counters = counters_aggregated['id'].unique()
+    adj_mtx = pd.DataFrame(index=all_counters, columns=all_counters)
+    
+    counters_aggregated['successors'] = counters_aggregated['successors'].astype(str)
+    all_counters = counters_aggregated['id'].unique()
+    adj_mtx = pd.DataFrame(index=all_counters, columns=all_counters)
+
+    _ = counters_aggregated[['id', 'successors']].apply(lambda x: mark_successors_in_adj_mtx(x[0], x[1], adj_mtx), axis=1)
+    adj_mtx.fillna(0, inplace=True)
+    return adj_mtx
         
 def construct_edge_index(counters_aggregated : pd.DataFrame):
     """Given non-temporal data about all counters, construct the edge_index 
@@ -256,8 +270,17 @@ def construct_edge_index(counters_aggregated : pd.DataFrame):
     return edge_index, n_node, num_edges
 
 def number_of_countries_in_holiday_dataset(config):
+    """
+    Args:
+        config (json): parameter dictionary
+
+    Returns:
+        number_of_countries (Integer): Number of unique countries in data set
+    """
+
     holidays = pd.read_csv(config["holidays_path"])
-    return len(set(holidays["country"]))
+    number_of_countries = len(set(holidays["country"]))
+    return number_of_countries
 
 def prepare_holidays_dataset(config, day = None):
     """TODO
@@ -327,19 +350,45 @@ def prepare_holidays_dataset_for_date(holiday_markers, date, config):
     return holiday_mtx
 
 def prepare_weekday_dataset_for_date(date, config):
+    """TODO
+
+    Args:
+        date (datetime): day of interest
+        config (json): parameter dictionary
+
+    Returns:
+        weekday_mtx (np.array): vector of size N_NODE, where each value is the number of day in the week
+        ex. monday - 0, tuesday - 1, ...
+    """
     weekday_mtx = np.zeros((config["N_NODE"], 1))
     weekday_mtx[:,:] = date.weekday()
     return weekday_mtx
 
-
-def prepare_historical_dataset(config):
+def prepare_month_dataset_for_date(date, config):
     """TODO
+
+    Args:
+        date (datetime): day of interest
+        config (json): parameter dictionary
+
+    Returns:
+        month_mtx (np.array): vector of size N_NODE, where each value is the 
+        number of month
+        ex. Januar - 0, Februar - 1, ...
+    """
+    month_mtx = np.zeros((config["N_NODE"], 1))
+    month_mtx[:,:] = date.month
+    return month_mtx
+
+
+def prepare_historical_dataset(config, select_enough_data_for_sliding_window = True):
+    """
 
     Args:
         config (json): parameter dictionary
 
     Returns:
-        slovenian_holiday_markers (pd.DataFrame): clean dataframe with holidays
+        counters_df (pd.DataFrame):
     """
     counters_df = pd.DataFrame()
     for fname in glob.glob(config["counter_files_path"] + "*.csv"):
@@ -347,14 +396,16 @@ def prepare_historical_dataset(config):
         if not config['data_with_already_filled_gaps']:
           counter_data = fill_gaps(counter_data)
         #counter_data = mark_holidays(counter_data, holiday_markers)
-        counter_data['Date'] = pd.to_datetime(counter_data['Date']) 
+        counter_data['Date'] = pd.to_datetime(counter_data['Date']).dt.tz_localize(None) 
         counter_data.index = counter_data['Date']
         counter_data = counter_data.sort_index(ascending=False)
-        counter_data = counter_data.loc[config['DATA_DATE_SPLIT']:,] 
+        date_split = datetime.strptime(config['DATA_DATE_SPLIT'], '%m/%d/%y %H:%M:%S')   
+        counter_data = counter_data.loc[date_split:,] 
         # We don't need to work with all past data.
         # Select enough data points to extract N_GRAPHS with F_IN and F_OUT timepoints
         
-        counter_data = counter_data.iloc[0:(config["F_IN"]+config["F_OUT"]+config["N_GRAPHS"]), :]
+        if select_enough_data_for_sliding_window:
+          counter_data = counter_data.iloc[0:(config["F_IN"]+config["F_OUT"]+config["N_GRAPHS"]), :]
         counter_id = fname.split('/')[-1].split('.csv')[0]
 
         if counters_df.empty:
@@ -377,9 +428,30 @@ def scale_counters_data(counters_df):
         dataset (pd.DataFrame): DataFrame with scaled columns
     """
     scaler = MinMaxScaler()
-    return pd.DataFrame(scaler.fit_transform(counters_df), columns=counters_df.columns)
+    old_index = counters_df.index
+    return pd.DataFrame(scaler.fit_transform(counters_df), columns=counters_df.columns, index=old_index)
 
+def extract_last_years_hours_lag_i(date, years_i, hour_i, counter_data, config):
+    """Retrive last years counters
 
+    Args:
+        date (datetime): date of interest
+        years_i (json): years offset
+        hour_i (json): hours offset
+        counter_data (json): dataframe to retrive data
+        config (json): parameter dictionary
+
+    Returns:
+        counter_data (np.array): Numpy array containing last years counters
+    """
+    if (date - DateOffset(years=years_i, hours=hour_i)) in counter_data.index:
+        left_offset = date - DateOffset(years=years_i, hours=hour_i + config["HALF_INTERVAL_SIZE"])
+        right_offset = date - DateOffset(years=years_i, hours=hour_i - config["HALF_INTERVAL_SIZE"])
+        return counter_data.loc[left_offset: right_offset,:].to_numpy().T
+    else:
+        print("Not enough data for date", date)
+        return np.nan
+    
 def prepare_pyg_dataset(config):
     """Construct a list which contains a Data instance in every element
 
@@ -398,9 +470,15 @@ def prepare_pyg_dataset(config):
 
     # Prepare dataset with historical counter data
     counters_df = prepare_historical_dataset(config)
+
+    if config["USE_YEAR_PERIODIC_DATA"]:
+      # Prepare dataset for 1 year loock back
+      all_counters_df = prepare_historical_dataset(config, False)
+
     logging.info("Historical counter data successfully read")
     # Scale data (each column should be between 0 and 1)
-    counters_df = scale_counters_data(counters_df)
+    if config['SCALE_DATA']:
+      counters_df = scale_counters_data(counters_df)
 
     #Prepare edge_index matrix
     counters_aggregated = pd.read_csv(config['counters_nontemporal_aggregated'])
@@ -409,6 +487,9 @@ def prepare_pyg_dataset(config):
 
     #get dimension values 
     dim_vals = []
+
+    # In order to one hot encode counters
+    encoder = OneHotEncoder(handle_unknown='ignore') 
 
     #Prepare matrices X shaped:[N_GRAPHS, N_NODES, F_IN] and Y shaped:[N_GRAPHS, N_NODES, F_OUT] 
     final_dataset = []
@@ -426,11 +507,19 @@ def prepare_pyg_dataset(config):
         df_train = train_test_chunk.iloc[:config['F_IN'],:]
         df_test = train_test_chunk.iloc[config['F_IN']:,:]
 
-        # initialize dimension info (counters, datetimes)
-        dim_val = (df_train.T.columns, df_train.columns)
-
         X = df_train.to_numpy().T
         Y = df_test.to_numpy().T
+
+        if config["USE_YEAR_PERIODIC_DATA"]:
+          current_date = np.max(df_train.index)
+          last_year_data = extract_last_years_hours_lag_i(current_date, 1, 0, all_counters_df, config)
+          X = np.hstack((X, last_year_data))
+
+        # Add one-hot encoded counter data
+        if config["USE_ONEHOT_FEATURES"]:
+          if i == 1:
+              encoder = encoder.fit(np.array(df_train.columns).reshape(-1,1))
+          X = np.hstack((X, encoder.transform(np.array(df_train.columns).reshape(-1,1)).toarray()))
 
         if config["USE_HOLIDAY_FEATURES"]:
             # Adding holiday features
@@ -443,6 +532,15 @@ def prepare_pyg_dataset(config):
             current_date = np.max(df_train.index)
             weekday_features = prepare_weekday_dataset_for_date(current_date, config)
             X = np.hstack((X, weekday_features))
+
+        if config["USE_MONTH_FEATURES"]:
+            # Adding month features
+            current_date = np.max(df_train.index)
+            month_features = prepare_month_dataset_for_date(current_date, config)
+            X = np.hstack((X, month_features))
+
+        # Initialize dimension info (counters, datetimes)
+        dim_val = (X.shape[0], X.shape[1])
 
         g.x = torch.FloatTensor(X)
         g.y = torch.FloatTensor(Y)
