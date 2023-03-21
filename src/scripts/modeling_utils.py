@@ -214,6 +214,50 @@ def save_all_predictions(y_pred, y_true, dim_vals, save_directory):
     with open(save_file, 'wb') as handle:
         pkl.dump(res, handle, protocol=pkl.HIGHEST_PROTOCOL)
 
+def plot_predictions_vs_gt_best(y_pred=None, y_true=None, length=168, maximum_search_space = 10000, pickle_path=None):
+    """Plot worst prediction.
+
+    Args:
+        y_pred (torch.Tensor): model predictions
+        y_true (torch.Tensor): actual values
+        length (integer): Size of prediction
+        maximum_search_space (integer): Size of search space
+        pickle_path (str): location where to find predictions and gt
+    """
+    if pickle_path is not None:
+        with open(pickle_path, 'rb') as f:
+            data = pkl.load(f)
+            y_pred = data[0][0].reshape(-1)
+            y_true = data[0][1].reshape(-1)
+    else:
+        y_pred = y_pred[0][0].reshape(-1)
+        y_true = y_true[0][1].reshape(-1)
+    
+    best_mse = 9999999
+    best_index = 0
+    for index in range(maximum_search_space):
+        error_mse = np.average((y_pred[index: index + length] - y_true[index: index + length]) ** 2)
+        if error_mse < best_mse:
+            best_mse = error_mse
+            best_index = index
+    y_pred = y_pred[best_index: best_index + length]
+    y_true = y_true[best_index: best_index + length]
+    print(best_index)
+    rng = length
+    plt.style.use('seaborn-darkgrid')
+    plt.plot(range(rng), y_true, label="Ground Truth")
+    plt.plot(range(rng), y_pred, label="Prediction")
+    plt.plot(range(rng), np.abs(y_true - y_pred), label="Absolute Error")
+    plt.xlabel("Time")
+    plt.ylabel("Number of cars")
+    plt.title("Comparison between prediction and ground truth")
+    plt.tick_params(
+        axis='x',          # changes apply to the x-axis
+        which='both',      # both major and minor ticks are affected
+        bottom=False,      # ticks along the bottom edge are off
+        top=False,         # ticks along the top edge are off
+        labelbottom=False)  # labels along the bottom edge are off
+    plt.legend()
 
 def plot_predictions_vs_gt_worst(y_pred=None, y_true=None, length=168, maximum_search_space = 1000000, pickle_path=None):
     """Plot worst prediction.
@@ -287,7 +331,7 @@ def plot_predictions_vs_gt(y_pred=None, y_true=None, start=0, stop=1000, pickle_
     plt.plot(range(rng), np.abs(y_true - y_pred), label="Absolute Error")
     plt.xlabel("Time")
     plt.ylabel("Number of cars")
-    plt.title("Comparison between prediction and ground truth for Counter 0011")
+    plt.title("Comparison between prediction and ground truth")
     plt.tick_params(
         axis='x',          # changes apply to the x-axis
         which='both',      # both major and minor ticks are affected

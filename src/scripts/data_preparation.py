@@ -380,6 +380,21 @@ def prepare_month_dataset_for_date(date, config):
     month_mtx[:,:] = date.month
     return month_mtx
 
+def prepare_hour_dataset_for_date(date, config):
+    """TODO
+
+    Args:
+        date (datetime): day of interest
+        config (json): parameter dictionary
+
+    Returns:
+        hour_mtx (np.array): vector of size N_NODE, where each value is the 
+        hour
+    """
+    hour_mtx = np.zeros((config["N_NODE"], 1))
+    hour_mtx[:,:] = date.hour
+    return hour_mtx
+
 
 def prepare_historical_dataset(config, select_enough_data_for_sliding_window = True):
     """
@@ -538,6 +553,12 @@ def prepare_pyg_dataset(config):
             current_date = np.max(df_train.index)
             month_features = prepare_month_dataset_for_date(current_date, config)
             X = np.hstack((X, month_features))
+
+        if config["USE_HOUR_FEATURES"]:
+            # Adding hour features
+            current_date = np.max(df_train.index)
+            hour_features = prepare_hour_dataset_for_date(current_date, config)
+            X = np.hstack((X, hour_features))
 
         # Initialize dimension info (counters, datetimes)
         dim_val = (X.shape[0], X.shape[1])
